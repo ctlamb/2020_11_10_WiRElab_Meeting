@@ -77,6 +77,7 @@ library(mapview)
 library(adehabitatHR)
 library(MuMIn)
 library(ggeffects)
+library(viridisLite)
 
 ##read in bear CSV
 bears <- read.csv(here::here("data","bears.csv"))
@@ -183,7 +184,14 @@ plot(mcp)
 plot(bears.spat%>%as("Spatial"),add=TRUE)
 
 ##sample from within this mcp
-avail <- st_sample(mcp%>%st_as_sf(),size=10000)
+##1:5 for every used, pair with individual used attribute data
+avail <- st_sample(mcp%>%st_as_sf(),size=nrow(bears.spat)*5)%>%
+  tibble%>%
+  mutate(Name=rep(bears.spat$Name, each=5),
+         DateTime=rep(bears.spat$DateTime, each=5))%>%
+  st_as_sf()
+
+
 
 plot(mcp)
 plot(avail%>%as("Spatial"),add=TRUE) ##looks like furry animal
@@ -197,20 +205,17 @@ avail.data <- raster::extract(stack, as(avail, "Spatial"), sp=TRUE)%>%st_as_sf()
 bears.spat.data <-bears.spat.data%>%
   tibble%>%
   dplyr::select(-geometry)%>%
-  mutate(used=1,
-         month=month(DateTime))
+  mutate(used=1)
 
 data <-bears.spat.data%>%
   rbind(
     avail.data%>%
       tibble%>%
-      mutate(used=0,
-             DateTime=NA,
-             Name=NA,
-             month=runif(10000,5,10)%>%round(0))%>%
+      mutate(used=0)%>%
             dplyr::select(colnames(bears.spat.data))
   )%>%
-  drop_na(cc:roaddist)
+  drop_na(cc:roaddist)%>%
+  mutate(month=as.factor(month(DateTime)))
   
 
 
@@ -236,19 +241,16 @@ null <- glm(used~1, data=data,family="binomial")
 m1 <-glm(used~cc+deltaNDVI, data=data,family="binomial")
 m2 <-glm(used~hum_density+roaddist, data=data,family="binomial")
 m3 <-glm(used~cc+deltaNDVI+hum_density+roaddist, data=data,family="binomial")
-m4 <-glm(used~cc+deltaNDVI+hum_density*month+roaddist*month, data=data%>%mutate(month=as.factor(month)),family="binomial")
+m4 <-glm(used~cc+deltaNDVI+hum_density*month+roaddist*month, data=data,family="binomial")
 
 model.sel(null,m1,m2,m3,m4)
 ```
 
 ## Plot results
 ```{r plot results, message=FALSE, warning=FALSE}
-
-
 plot(ggpredict(m4, terms = c("deltaNDVI")))
 plot(ggpredict(m4, terms = c("month","hum_density[50]")))
 plot(ggpredict(m4, terms = c("roaddist","month[5,7,10]")))
-
 ```
 
 ## Map results
@@ -267,4 +269,40 @@ values(month)=10
 map.fall <-predict(stack%>%
   addLayer(month),m4, type="response")
 plot(map.fall)
+```
+
+## Map results
+```{r map results2, message=FALSE, warning=FALSE}
+##change to tibble
+sum.rast<-  map.summer%>%
+  as.data.frame(xy = TRUE)%>%
+  drop_na(layer)%>%
+  mutate(Season="Summer")
+
+fall.rast<-  map.fall%>%
+  as.data.frame(xy = TRUE)%>%
+  drop_na(layer)%>%
+  mutate(Season="Fall")
+
+map.dat <-rbind(sum.rast,fall.rast)%>%
+  mutate(Season=fct_relevel(Season,"Summer","Fall"))
+
+##load some town data
+cities <- tribble(
+~city,~lat,~long,
+"Fernie", 49.505770,-115.065131,
+"Sparwood",  49.731576,-114.888112,
+"Elkford",  50.024611,-114.924228
+)%>%
+  st_as_sf(coords=c("long","lat"),
+           crs=4326)
+
+  ggplot() +
+  geom_raster(data = map.dat,
+              aes(x = x, y = y, fill =layer))+
+  geom_sf(data=cities,fill =NA, color = "black", size=3, alpha=0.5)+
+  facet_wrap(vars(Season))+
+    theme_ipsum()+
+    scale_fill_gradientn(colours = rev(magma(8, alpha = 0.8)[2:7]), name = "Selection")
+
 ```

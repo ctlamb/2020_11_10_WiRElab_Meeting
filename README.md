@@ -16,6 +16,7 @@ library(mapview)
 library(adehabitatHR)
 library(MuMIn)
 library(ggeffects)
+library(viridisLite)
 
 ##read in bear CSV
 bears <- read.csv(here::here("data","bears.csv"))
@@ -158,7 +159,14 @@ plot(bears.spat%>%as("Spatial"),add=TRUE)
 
 ``` r
 ##sample from within this mcp
-avail <- st_sample(mcp%>%st_as_sf(),size=10000)
+##1:5 for every used, pair with individual used attribute data
+avail <- st_sample(mcp%>%st_as_sf(),size=nrow(bears.spat)*5)%>%
+  tibble%>%
+  mutate(Name=rep(bears.spat$Name, each=5),
+         DateTime=rep(bears.spat$DateTime, each=5))%>%
+  st_as_sf()
+
+
 
 plot(mcp)
 plot(avail%>%as("Spatial"),add=TRUE) ##looks like furry animal
@@ -177,20 +185,17 @@ avail.data <- raster::extract(stack, as(avail, "Spatial"), sp=TRUE)%>%st_as_sf()
 bears.spat.data <-bears.spat.data%>%
   tibble%>%
   dplyr::select(-geometry)%>%
-  mutate(used=1,
-         month=month(DateTime))
+  mutate(used=1)
 
 data <-bears.spat.data%>%
   rbind(
     avail.data%>%
       tibble%>%
-      mutate(used=0,
-             DateTime=NA,
-             Name=NA,
-             month=runif(10000,5,10)%>%round(0))%>%
+      mutate(used=0)%>%
             dplyr::select(colnames(bears.spat.data))
   )%>%
-  drop_na(cc:roaddist)
+  drop_na(cc:roaddist)%>%
+  mutate(month=as.factor(month(DateTime)))
   
 
 
@@ -219,18 +224,18 @@ null <- glm(used~1, data=data,family="binomial")
 m1 <-glm(used~cc+deltaNDVI, data=data,family="binomial")
 m2 <-glm(used~hum_density+roaddist, data=data,family="binomial")
 m3 <-glm(used~cc+deltaNDVI+hum_density+roaddist, data=data,family="binomial")
-m4 <-glm(used~cc+deltaNDVI+hum_density*month+roaddist*month, data=data%>%mutate(month=as.factor(month)),family="binomial")
+m4 <-glm(used~cc+deltaNDVI+hum_density*month+roaddist*month, data=data,family="binomial")
 
 model.sel(null,m1,m2,m3,m4)
 ```
 
     ## Model selection table 
-    ##         (Int)      cc    dND   hum_dns        rdd mnt hum_dns:mnt mnt:rdd df    logLik    AICc   delta weight
-    ## m4   -0.63740 0.02179  8.324 -0.002750 -0.0008274   +           +       + 20 -10039.58 20119.2    0.00      1
-    ## m3   -1.31900 0.01983  8.367 -0.003502 -0.0005338                          5 -10552.02 21114.0  994.83      0
-    ## m1   -1.91000 0.02260 11.330                                               3 -10727.16 21460.3 1341.10      0
-    ## m2   -0.01816                -0.004995 -0.0007276                          3 -10837.16 21680.3 1561.10      0
-    ## null -0.39880                                                              1 -11243.93 22489.9 2370.66      0
+    ##       (Int)      cc    dND   hum_dns        rdd mnt hum_dns:mnt mnt:rdd df    logLik    AICc   delta weight
+    ## m4   -2.521 0.02339  8.017 -0.002363 -0.0007514   +           +       + 20 -16764.44 33568.9    0.00      1
+    ## m3   -2.577 0.02219  8.132 -0.002754 -0.0005247                          5 -17165.72 34341.5  772.56      0
+    ## m1   -3.124 0.02433 10.900                                               3 -17380.97 34767.9 1199.04      0
+    ## m2   -1.245                -0.004199 -0.0007054                          3 -17607.98 35222.0 1653.08      0
+    ## null -1.609                                                              1 -18117.57 36237.1 2668.25      0
     ## Models ranked by AICc(x)
 
 ## Plot results
@@ -276,3 +281,41 @@ plot(map.fall)
 ```
 
 ![](README_files/figure-gfm/map%20results-2.png)<!-- -->
+
+## Map results
+
+``` r
+##change to tibble
+sum.rast<-  map.summer%>%
+  as.data.frame(xy = TRUE)%>%
+  drop_na(layer)%>%
+  mutate(Season="Summer")
+
+fall.rast<-  map.fall%>%
+  as.data.frame(xy = TRUE)%>%
+  drop_na(layer)%>%
+  mutate(Season="Fall")
+
+map.dat <-rbind(sum.rast,fall.rast)%>%
+  mutate(Season=fct_relevel(Season,"Summer","Fall"))
+
+##load some town data
+cities <- tribble(
+~city,~lat,~long,
+"Fernie", 49.505770,-115.065131,
+"Sparwood",  49.731576,-114.888112,
+"Elkford",  50.024611,-114.924228
+)%>%
+  st_as_sf(coords=c("long","lat"),
+           crs=4326)
+
+  ggplot() +
+  geom_raster(data = map.dat,
+              aes(x = x, y = y, fill =layer))+
+  geom_sf(data=cities,fill =NA, color = "black", size=3, alpha=0.5)+
+  facet_wrap(vars(Season))+
+    theme_ipsum()+
+    scale_fill_gradientn(colours = rev(magma(8, alpha = 0.8)[2:7]), name = "Selection")
+```
+
+![](README_files/figure-gfm/map%20results2-1.png)<!-- -->
