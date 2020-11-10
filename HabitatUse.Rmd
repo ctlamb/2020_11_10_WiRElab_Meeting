@@ -1,0 +1,270 @@
+
+---
+title: "WiRE Lab--Spatial R"
+author: "Clayton Lamb"
+date: '`r format(Sys.time(), "%d %B, %Y")`'
+output: github_document
+---
+
+```{r render, eval=FALSE, message=FALSE, warning=FALSE, include=FALSE, results='hide'}
+rmarkdown::render(here::here('HabitatUse.Rmd'),
+                  output_file = "README.md")
+```
+
+```{r prep, eval=FALSE, message=FALSE, warning=FALSE, include=FALSE, results='hide'}
+##prep bear data
+df <- read.csv("/Users/clayton.lamb/Google Drive/CL_Laura /Clayton Lamb's EV Bears/GPS Collar Locations/Clean_Data/EVcollar_Relocs.csv")%>%
+  filter(Name%in%c("Polly", "Bubbles", "Sue"))%>%
+  mutate(DateTime=ymd_hms(DateTime, tz="America/Edmonton"))%>%
+  filter(month(DateTime)%in%5:10)%>%
+  dplyr::select(-ID,-Brand,-DOP)
+
+write_csv(df, here::here("data","bears.csv"))
+
+df <-df%>%
+  st_as_sf(coords=c("Longitude","Latitude"),
+           crs=4326)%>%
+  st_transform("+proj=aea +lat_1=50 +lat_2=58.5 +lat_0=45 +lon_0=-126 +x_0=1000000 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs")
+
+
+##prep spatial data
+dndvi <- raster("/Users/clayton.lamb/Google Drive/Documents/University/U_A/Analyses/BC_Wide_PhD/Prov_Grizz_density_oSCR/Data_Prep/Spatial_Layers_ProvSECR/NDVI/deltaNDVI.tif")%>%
+  crop(extent(df)*1.5)%>%
+  projectRaster(crs="+proj=longlat +datum=WGS84 +no_defs")%>%
+  crop(extent(df%>%st_transform("+proj=longlat +datum=WGS84 +no_defs"))*1.5)
+plot(dndvi)
+
+
+cc <- raster("/Users/clayton.lamb/Google Drive/Documents/University/U_A/Analyses/BC_Wide_PhD/Prov_Grizz_density_oSCR/Data_Prep/Spatial_Layers_ProvSECR/Canopy/cc.tif")%>%
+  crop(extent(df)*1.5)%>%
+  projectRaster(dndvi)
+plot(cc)
+
+hd <- raster("/Users/clayton.lamb/Google Drive/Documents/University/U_A/Analyses/BC_Wide_PhD/Prov_Grizz_density_oSCR/Data_Prep/Spatial_Layers_ProvSECR/human_density/hum_density.tif")%>%
+  crop(extent(df%>%st_transform("+proj=utm +zone=11 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs"))*1.5)%>%
+  projectRaster(dndvi)
+plot(hd)
+
+rd <- raster("/Users/clayton.lamb/Google Drive/Documents/University/U_A/Analyses/BC_Wide_PhD/Prov_Grizz_density_oSCR/Data_Prep/Spatial_Layers_ProvSECR/road_density/rd_use_15m.tif")%>%
+  crop(extent(df)*1.5)%>%
+  aggregate(2)
+plot(rd)
+rd<-rd>0
+values(rd)[values(rd)==0] <- NA
+plot(rd)
+
+dist.to.road <-distance(rd)
+dist.to.road <- dist.to.road%>%
+  projectRaster(dndvi)
+names(dist.to.road) <- "roaddist"
+  
+plot(dist.to.road)
+
+
+stack <- stack(dndvi,cc,hd,dist.to.road)
+writeRaster(stack, here::here("data",names(stack)),bylayer=TRUE, format="GTiff", overwrite=TRUE)
+```
+
+## Load packages and bear data
+```{r Load packages and data, message=FALSE, warning=FALSE}
+library(hrbrthemes)
+library(tidyverse)
+library(here)
+library(lubridate)
+library(raster)
+library(sf)
+library(mapview)
+library(adehabitatHR)
+library(MuMIn)
+library(ggeffects)
+
+##read in bear CSV
+bears <- read.csv(here::here("data","bears.csv"))
+
+##get dates in order
+bears <- bears%>%
+  mutate(DateTime=ymd_hms(DateTime,
+                          tz="America/Edmonton")
+         ) 
+
+##check it out
+head(bears)
+
+bears%>%
+  group_by(Name)%>%
+  summarise(n=n(),
+            start=min(DateTime),
+            end=max(DateTime),
+            duration=end-start)
+
+##make spatial
+bears.spat <-bears%>%
+  st_as_sf(coords=c("Longitude","Latitude"),
+           crs=4326)
+
+##plot
+plot(bears.spat["Name"])
+
+##map
+#mapview(bears.spat["Name"],map.types="Esri.WorldImagery")
+```
+
+## Load landscape data
+```{r Load spatial, message=FALSE, warning=FALSE}
+
+#first import all files in a single folder as a list 
+rastlist <- list.files(path = here::here("data"), pattern='.tif$', all.files=TRUE, full.names=TRUE)
+
+#stack 'em
+stack<- stack(rastlist)
+
+#plot
+plot(stack)
+
+##overlay with bear data, important
+##remember-- spatial data are just plots with an X and Y (and confusing AF projections...if only the world were truly flat)
+plot(stack[[2]])
+plot(bears.spat%>%as("Spatial"),add=TRUE)
+```
+
+
+## Extract landscape data to bear data
+```{r extract, message=FALSE, warning=FALSE}
+bears.spat.data <- raster::extract(stack, as(bears.spat, "Spatial"), sp=TRUE)%>%st_as_sf()
+
+head(bears.spat.data )
+#mapview(bears.spat.data["roaddist"],map.types="Esri.WorldImagery")
+```
+
+## Explore data
+```{r explore, message=FALSE, warning=FALSE}
+bears.spat.data%>%
+  tibble%>%
+  dplyr::select(-geometry)%>%
+  pivot_longer(cc:roaddist)%>%
+  mutate(Date_yearless=ymd(paste("2020", month(DateTime), day(DateTime),sep="-")))%>%
+  ggplot(aes(x=Date_yearless,y=value, color=Name))+
+  geom_point()+
+  facet_wrap(vars(name),scales="free_y")+
+  theme_ipsum()+
+    theme(axis.title.x = element_text(size=15),
+        axis.title.y = element_text(size=15),
+        axis.text = element_text(size=10),
+        legend.text = element_text(size=13),
+        legend.title=element_text(size=15))
+
+
+
+bears.spat.data%>%
+  tibble%>%
+  dplyr::select(-geometry)%>%
+  pivot_longer(cc:roaddist)%>%
+  mutate(month=month(DateTime))%>%
+  group_by(Name,month,name)%>%
+  summarise(value=mean(value))%>%
+  ggplot(aes(x=month,y=value, color=Name))+
+  geom_point()+
+  facet_wrap(vars(name),scales="free_y")+
+  geom_smooth()+
+    theme_ipsum()+
+    theme(axis.title.x = element_text(size=15),
+        axis.title.y = element_text(size=15),
+        axis.text = element_text(size=10),
+        legend.text = element_text(size=13),
+        legend.title=element_text(size=15))
+
+```
+
+## Add in some availables
+```{r availables, message=FALSE, warning=FALSE}
+mcp <- mcp(bears.spat%>%as("Spatial")%>%as("SpatialPoints"), percent=95)
+
+plot(mcp)
+plot(bears.spat%>%as("Spatial"),add=TRUE)
+
+##sample from within this mcp
+avail <- st_sample(mcp%>%st_as_sf(),size=10000)
+
+plot(mcp)
+plot(avail%>%as("Spatial"),add=TRUE) ##looks like furry animal
+
+##extract landscape data to availables
+avail.data <- raster::extract(stack, as(avail, "Spatial"), sp=TRUE)%>%st_as_sf()
+```
+
+## Get used-available data together
+```{r use-avail together, message=FALSE, warning=FALSE}
+bears.spat.data <-bears.spat.data%>%
+  tibble%>%
+  dplyr::select(-geometry)%>%
+  mutate(used=1,
+         month=month(DateTime))
+
+data <-bears.spat.data%>%
+  rbind(
+    avail.data%>%
+      tibble%>%
+      mutate(used=0,
+             DateTime=NA,
+             Name=NA,
+             month=runif(10000,5,10)%>%round(0))%>%
+            dplyr::select(colnames(bears.spat.data))
+  )%>%
+  drop_na(cc:roaddist)
+  
+
+
+data%>%
+  pivot_longer(cc:roaddist)%>%
+  group_by(month,name,used)%>%
+  summarise(value=mean(value))%>%
+  ggplot(aes(x=month,y=value, color=as.factor(used)))+
+  geom_point()+
+  facet_wrap(vars(name),scales="free_y")+
+  geom_smooth()+
+    theme_ipsum()+
+    theme(axis.title.x = element_text(size=15),
+        axis.title.y = element_text(size=15),
+        axis.text = element_text(size=10),
+        legend.text = element_text(size=13),
+        legend.title=element_text(size=15))
+```
+
+## Model
+```{r model, message=FALSE, warning=FALSE}
+null <- glm(used~1, data=data,family="binomial")
+m1 <-glm(used~cc+deltaNDVI, data=data,family="binomial")
+m2 <-glm(used~hum_density+roaddist, data=data,family="binomial")
+m3 <-glm(used~cc+deltaNDVI+hum_density+roaddist, data=data,family="binomial")
+m4 <-glm(used~cc+deltaNDVI+hum_density*month+roaddist*month, data=data%>%mutate(month=as.factor(month)),family="binomial")
+
+model.sel(null,m1,m2,m3,m4)
+```
+
+## Plot results
+```{r plot results, message=FALSE, warning=FALSE}
+
+
+plot(ggpredict(m4, terms = c("deltaNDVI")))
+plot(ggpredict(m4, terms = c("month","hum_density[50]")))
+plot(ggpredict(m4, terms = c("roaddist","month[5,7,10]")))
+
+```
+
+## Map results
+```{r map results, message=FALSE, warning=FALSE}
+month <- stack[[1]]
+values(month)=7
+month<- ratify(month)
+names(month)="month"
+
+map.summer <- predict(stack%>%
+  addLayer(month),m4, type="response")
+plot(map.summer)
+
+
+values(month)=10
+map.fall <-predict(stack%>%
+  addLayer(month),m4, type="response")
+plot(map.fall)
+```
