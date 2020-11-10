@@ -249,8 +249,8 @@ model.sel(null,m1,m2,m3,m4)
 ## Plot results
 ```{r plot results, message=FALSE, warning=FALSE}
 plot(ggpredict(m4, terms = c("deltaNDVI")))
-plot(ggpredict(m4, terms = c("month","hum_density[50]")))
-plot(ggpredict(m4, terms = c("roaddist","month[5,7,10]")))
+plot(ggpredict(m4, terms = c("hum_density","month[7,10]")))
+plot(ggpredict(m4, terms = c("roaddist","month[7,10]")))
 ```
 
 ## Map results

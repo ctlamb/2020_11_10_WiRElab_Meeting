@@ -231,11 +231,11 @@ model.sel(null,m1,m2,m3,m4)
 
     ## Model selection table 
     ##       (Int)      cc    dND   hum_dns        rdd mnt hum_dns:mnt mnt:rdd df    logLik    AICc   delta weight
-    ## m4   -2.521 0.02339  8.017 -0.002363 -0.0007514   +           +       + 20 -16764.44 33568.9    0.00      1
-    ## m3   -2.577 0.02219  8.132 -0.002754 -0.0005247                          5 -17165.72 34341.5  772.56      0
-    ## m1   -3.124 0.02433 10.900                                               3 -17380.97 34767.9 1199.04      0
-    ## m2   -1.245                -0.004199 -0.0007054                          3 -17607.98 35222.0 1653.08      0
-    ## null -1.609                                                              1 -18117.57 36237.1 2668.25      0
+    ## m4   -2.528 0.02364  7.974 -0.002377 -0.0007543   +           +       + 20 -16752.93 33545.9    0.00      1
+    ## m3   -2.582 0.02241  8.120 -0.003044 -0.0005185                          5 -17164.69 34339.4  793.50      0
+    ## m1   -3.135 0.02468 10.920                                               3 -17380.02 34766.0 1220.16      0
+    ## m2   -1.245                -0.004405 -0.0007012                          3 -17603.07 35212.1 1666.27      0
+    ## null -1.609                                                              1 -18117.39 36236.8 2690.90      0
     ## Models ranked by AICc(x)
 
 ## Plot results
@@ -247,13 +247,13 @@ plot(ggpredict(m4, terms = c("deltaNDVI")))
 ![](README_files/figure-gfm/plot%20results-1.png)<!-- -->
 
 ``` r
-plot(ggpredict(m4, terms = c("month","hum_density[50]")))
+plot(ggpredict(m4, terms = c("hum_density","month[7,10]")))
 ```
 
 ![](README_files/figure-gfm/plot%20results-2.png)<!-- -->
 
 ``` r
-plot(ggpredict(m4, terms = c("roaddist","month[5,7,10]")))
+plot(ggpredict(m4, terms = c("roaddist","month[7,10]")))
 ```
 
 ![](README_files/figure-gfm/plot%20results-3.png)<!-- -->
